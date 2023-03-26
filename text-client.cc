@@ -1,54 +1,61 @@
 #include <iostream>
-#include <cstdlib>
 #include <cstring>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
 #include <sys/shm.h>
-#include <fstream>
+#include <semaphore.h>
 
-#define SHMSIZE 1024 // Size of shared memory
+const int SHMSIZE = 1024;
+const char* SHMNAME = "SharedMemory";
+const char* SEMNAME = "Semaphore";
 
 int main() {
-    // Get shared memory segment
-    key_t key = ftok("shmfile", 65); // Generate unique key
-    if (key == -1) {
-        std::cerr << "Error generating shared memory key" << std::endl;
+    // Create shared memory segment
+    int shared_memory_id = shmget(ftok(SHMNAME, 1), SHMSIZE, 0666 | IPC_CREAT);
+    if (shared_memory_id < 0) {
+        std::cerr << "Error creating shared memory segment" << std::endl;
         exit(EXIT_FAILURE);
     }
 
-    int shmid = shmget(key, SHMSIZE, 0666); // Get shared memory segment
-    if (shmid == -1) {
-        std::cerr << "Error getting shared memory segment" << std::endl;
-        exit(EXIT_FAILURE);
-    }
-
-    char* shared_memory = (char*)shmat(shmid, nullptr, 0); // Attach shared memory segment
+    // Attach shared memory segment
+    char* shared_memory = (char*)shmat(shared_memory_id, NULL, 0);
     if (shared_memory == (char*)-1) {
         std::cerr << "Error attaching shared memory segment" << std::endl;
         exit(EXIT_FAILURE);
     }
 
-    // Write file name and path to shared memory
-    const char* file_name_path = "bankloan1.csv"; // Replace with actual file path
-    strncpy(shared_memory, file_name_path, SHMSIZE);
-
-    std::cout << "Client wrote file name and path to shared memory" << std::endl;
-    *shared_memory = '\0';
-    // Wait for server to write file contents to shared memory
-    while (*shared_memory != '#') {
-        sleep(1);
+    // Open semaphore
+    sem_t* semaphore = sem_open(SEMNAME, O_CREAT, 0666, 0); // Create new semaphore
+    if (semaphore == SEM_FAILED) {
+        std::cerr << "Error opening semaphore" << std::endl;
+        exit(EXIT_FAILURE);
     }
 
-    // Read file contents from shared memory
-    std::string file_contents(shared_memory);
+    // Write file name and path to shared memory
+    std::string file_name_path;
+    std::cout << "Enter file name and path: ";
+    std::getline(std::cin, file_name_path);
 
-    // Print file contents
-    std::cout << "File contents:" << std::endl;
-    std::cout << file_contents << std::endl;
-    *share_memory = '*';
+    strncpy(shared_memory, file_name_path.c_str(), SHMSIZE);
+
+    // Signal server to read file name and path
+    sem_post(semaphore);
+
+    // Wait for server to write file contents to shared memory
+    sem_wait(semaphore);
+
+    // Read file contents from shared memory
+    char buffer[SHMSIZE];
+    strncpy(buffer, shared_memory, SHMSIZE);
+
+    // Output file contents
+    std::cout << buffer << std::endl;
+
     // Detach shared memory segment
     shmdt(shared_memory);
 
+    // Close semaphore
+    sem_close(semaphore);
+
     return 0;
 }
+
